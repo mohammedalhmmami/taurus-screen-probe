@@ -1,0 +1,55 @@
+name: Build unsigned IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || sudo xcode-select -s "$(xcode-select -p)"
+          xcodebuild -version
+
+      - name: Unzip project
+        run: |
+          unzip -o taurus-screen-probe.zip
+          ls -la taurus-screen-probe
+
+      - name: Validate project
+        run: |
+          cd taurus-screen-probe
+          plutil -lint TaurusScreenProbe.xcodeproj/project.pbxproj
+          plutil -lint TaurusScreenProbe/Info.plist
+          xcodebuild -list -project TaurusScreenProbe.xcodeproj
+
+      - name: Build app (no signing)
+        run: |
+          cd taurus-screen-probe
+          xcodebuild -project TaurusScreenProbe.xcodeproj -scheme TaurusScreenProbe -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -derivedDataPath DerivedData
+
+      - name: Package IPA
+        run: |
+          cd taurus-screen-probe
+          APP=$(find DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP" ]; then APP=$(find ~/Library/Developer/Xcode/DerivedData -name "TaurusScreenProbe.app" -path "*Release-iphoneos*" | head -n 1); fi
+          test -n "$APP" || { echo "ERROR: no .app found in DerivedData"; find DerivedData -maxdepth 4 -type d | head -20; exit 1; }
+          echo "APP=$APP"
+          mkdir -p Payload
+          cp -r "$APP" Payload/
+          zip -r ../TaurusScreenProbe-unsigned.ipa Payload
+          ls -lh ../TaurusScreenProbe-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaurusScreenProbe-unsigned-ipa
+          path: TaurusScreenProbe-unsigned.ipa
